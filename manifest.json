@@ -1,13 +1,20 @@
 {
   "manifest_version": 3,
-  "name": "BruinLearn LinkedIn Helper",
-  "version": "1.0",
-  "description": "Adds a one-click button to search for students on LinkedIn from the BruinLearn roster.",
+  "name": "BruinLearn Helper",
+  "version": "1.1",
+  "description": "Scrapes and saves class rosters from BruinLearn.",
+  "permissions": [
+    "storage"
+  ],
   "content_scripts": [
     {
       "matches": ["https://bruinlearn.ucla.edu/courses/*/users"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "options_page": "settings.html",
+  "action": {
+    "default_title": "Open Saved Rosters"
+  }
 }
