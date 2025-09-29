@@ -1,4 +1,3 @@
-// A helper function to wait for an element to exist before running a callback.
 function waitForElement(selector, callback) {
     const observer = new MutationObserver((mutations, me) => {
         const element = document.querySelector(selector);
@@ -14,8 +13,8 @@ function waitForElement(selector, callback) {
 //  SECTION 1: CORE FUNCTIONS
 // =========================================================================
 
+// --- processNode, parseUserRow, scrapeAndSaveRoster, addScrapeButton are unchanged ---
 function processNode(node) {
-  // This function remains the same, it just adds LinkedIn buttons.
   if (node.nodeType !== Node.ELEMENT_NODE) return;
   const studentRows = node.querySelectorAll('.al-hover-container.StudentEnrollment:not(.linkedin-button-added)');
   for (const row of studentRows) {
@@ -55,11 +54,6 @@ function processNode(node) {
     }
   }
 }
-
-/**
- * --- UPDATED ---
- * Parses a single user row, now including an empty 'notes' field.
- */
 function parseUserRow(row) {
     const user = {};
     user.userId = row.id.replace('user_', '');
@@ -75,13 +69,10 @@ function parseUserRow(row) {
     user.firstName = nameParts[1] || '';
     const roleElement = row.querySelector('td:nth-of-type(3) div');
     user.role = roleElement ? roleElement.textContent.trim() : '';
-    user.notes = ""; // --- NEW: Initialize notes field for every user.
+    user.notes = "";
     return user;
 }
-
 async function scrapeAndSaveRoster() {
-    // This function remains the same.
-    console.log("--- Starting Roster Scrape ---");
     const classNameElement = document.querySelector('#breadcrumbs li:nth-of-type(2) .ellipsible');
     const className = classNameElement ? classNameElement.textContent.trim() : 'Unknown-Class';
     if (className === 'My Dashboard' || className === 'Unknown-Class') {
@@ -96,13 +87,9 @@ async function scrapeAndSaveRoster() {
         existingData[className] = rosterData;
         await chrome.storage.local.set(existingData);
         alert(`Success! Saved roster for "${className}" with ${rosterData.length} members.`);
-    } catch (error) {
-        console.error("❌ FAILED: Error saving to storage:", error);
-    }
+    } catch (error) { console.error("Error saving to storage:", error); }
 }
-
 function addScrapeButton() {
-    // This function remains the same.
     const rosterContainer = document.querySelector('div[data-view="users"]');
     if (rosterContainer && !document.getElementById('scrapeRosterBtn')) {
         const scrapeButton = document.createElement('button');
@@ -116,76 +103,52 @@ function addScrapeButton() {
 }
 
 /**
- * --- NEW ---
- * This function adds all the right-click and hover functionality for notes.
+ * --- NEW: Functions to create, show, and handle the note editor modal ---
  */
-function addNoteFunctionality() {
-    const studentNameLinks = document.querySelectorAll('.roster_user_name:not(.notes-added)');
+function showNoteEditorModal(className, userId, studentName, currentNote) {
+    // Remove any existing modal first
+    const existingModal = document.getElementById('note-editor-modal');
+    if (existingModal) existingModal.remove();
+
+    // Create the modal background
+    const backdrop = document.createElement('div');
+    backdrop.id = 'note-editor-modal';
+    backdrop.style.cssText = `position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 9999; display: flex; align-items: center; justify-content: center;`;
+
+    // Create the modal content area
+    const modalContent = document.createElement('div');
+    modalContent.style.cssText = `background-color: white; padding: 20px; border-radius: 8px; width: 500px; max-width: 90%; box-shadow: 0 5px 15px rgba(0,0,0,0.3);`;
     
-    studentNameLinks.forEach(link => {
-        link.classList.add('notes-added');
+    // Add content to the modal
+    modalContent.innerHTML = `
+        <h3 style="margin-top: 0;">Editing Note for ${studentName}</h3>
+        <textarea id="note-textarea" style="width: 100%; height: 200px; box-sizing: border-box; font-size: 1em; padding: 8px;">${currentNote}</textarea>
+        <div style="margin-top: 15px; text-align: right;">
+            <button id="note-cancel-btn" class="btn">Cancel</button>
+            <button id="note-save-btn" class="btn Button--primary">Save</button>
+        </div>
+    `;
 
-        // --- HOVER TO VIEW NOTE ---
-        link.addEventListener('mouseenter', async (event) => {
-            const row = event.target.closest('tr.rosterUser');
-            if (!row) return;
-            
-            const userId = row.id.replace('user_', '');
-            const className = document.querySelector('#breadcrumbs li:nth-of-type(2) .ellipsible').textContent.trim();
-            
-            const data = await chrome.storage.local.get(className);
-            if (!data[className]) return;
-
-            const student = data[className].find(s => s.userId === userId);
-            const noteText = student && student.notes ? student.notes : "No notes yet. Right-click to add one!";
-
-            // Create and show a tooltip
-            const tooltip = document.createElement('div');
-            tooltip.id = 'note-tooltip';
-            tooltip.textContent = noteText;
-            tooltip.style.cssText = `
-                position: fixed; top: ${event.clientY + 15}px; left: ${event.clientX + 15}px;
-                background-color: #333; color: white; padding: 8px 12px; border-radius: 6px;
-                z-index: 10000; font-size: 14px; max-width: 300px;
-            `;
-            document.body.appendChild(tooltip);
-        });
-        
-        link.addEventListener('mouseleave', () => {
-            const tooltip = document.getElementById('note-tooltip');
-            if (tooltip) tooltip.remove();
-        });
-
-        // --- RIGHT-CLICK TO ADD/EDIT NOTE ---
-        link.addEventListener('contextmenu', async (event) => {
-            event.preventDefault(); // Stop the default right-click menu
-            
-            const row = event.target.closest('tr.rosterUser');
-            if (!row) return;
-
-            const userId = row.id.replace('user_', '');
-            const className = document.querySelector('#breadcrumbs li:nth-of-type(2) .ellipsible').textContent.trim();
-            
-            const data = await chrome.storage.local.get(className);
-            // Check if the roster has been saved first
-            if (!data[className]) {
-                alert("Please save the roster before adding notes to students.");
-                return;
-            }
-
+    backdrop.appendChild(modalContent);
+    document.body.appendChild(backdrop);
+    
+    // --- Add logic to the buttons ---
+    document.getElementById('note-save-btn').addEventListener('click', async () => {
+        const newNote = document.getElementById('note-textarea').value;
+        const data = await chrome.storage.local.get(className);
+        if (data[className]) {
             const studentIndex = data[className].findIndex(s => s.userId === userId);
-            if (studentIndex === -1) return;
-
-            const currentNote = data[className][studentIndex].notes || "";
-            // Using a simple prompt() for the popup. A custom HTML file is possible but more complex.
-            const newNote = prompt(`Enter note for ${event.target.textContent.trim()}:`, currentNote);
-
-            if (newNote !== null) { // User clicked OK, not Cancel
+            if (studentIndex !== -1) {
                 data[className][studentIndex].notes = newNote;
                 await chrome.storage.local.set({ [className]: data[className] });
-                alert("Note saved!");
+                alert('Note saved!');
+                backdrop.remove(); // Close the modal
             }
-        });
+        }
+    });
+
+    document.getElementById('note-cancel-btn').addEventListener('click', () => {
+        backdrop.remove();
     });
 }
 
@@ -193,9 +156,6 @@ function addNoteFunctionality() {
 //  SECTION 2: INITIALIZATION LOGIC
 // =========================================================================
 
-// in content.js
-
-// This is the main function that runs everything once the roster table is ready.
 function initialize() {
     console.log("BruinLearn Helper: Roster table found! Initializing script...");
     addScrapeButton();
@@ -204,85 +164,51 @@ function initialize() {
     const rosterTable = document.querySelector('table.roster');
     if (!rosterTable) return;
 
-    // --- Event Delegation for Right-Click (No changes here) ---
+    // --- UPDATED: Right-click now opens the modal dialog ---
     rosterTable.addEventListener('contextmenu', async (event) => {
         const targetLink = event.target.closest('.roster_user_name');
         if (!targetLink) return;
-
         event.preventDefault();
 
         const row = targetLink.closest('tr.rosterUser');
         const userId = row.id.replace('user_', '');
         const className = document.querySelector('#breadcrumbs li:nth-of-type(2) .ellipsible').textContent.trim();
+        const studentName = targetLink.textContent.trim();
         
         const data = await chrome.storage.local.get(className);
         if (!data[className]) {
-            alert("Please save the roster before adding notes to students.");
+            alert("Please save the roster before adding notes.");
             return;
         }
 
-        const studentIndex = data[className].findIndex(s => s.userId === userId);
-        if (studentIndex === -1) return;
-
-        const currentNote = data[className][studentIndex].notes || "";
-        const newNote = prompt(`Enter note for ${targetLink.textContent.trim()}:`, currentNote);
-
-        if (newNote !== null) {
-            data[className][studentIndex].notes = newNote;
-            await chrome.storage.local.set({ [className]: data[className] });
-            alert("Note saved!");
-        }
+        const student = data[className].find(s => s.userId === userId);
+        const currentNote = student ? student.notes : "";
+        
+        showNoteEditorModal(className, userId, studentName, currentNote);
     });
 
-    // --- UPDATED: Event Delegation for Hover Tooltip ---
+    // --- Hover and Observer logic remains the same ---
     rosterTable.addEventListener('mouseover', async (event) => {
         const targetLink = event.target.closest('.roster_user_name');
         if (!targetLink || document.getElementById('note-tooltip')) return;
-
         const row = targetLink.closest('tr.rosterUser');
         const userId = row.id.replace('user_', '');
         const className = document.querySelector('#breadcrumbs li:nth-of-type(2) .ellipsible').textContent.trim();
-        
         const data = await chrome.storage.local.get(className);
         if (!data[className]) return;
-
         const student = data[className].find(s => s.userId === userId);
         const noteText = student && student.notes ? student.notes : "No notes yet.";
-
+        const noteHtml = marked.parse(noteText);
         const tooltip = document.createElement('div');
         tooltip.id = 'note-tooltip';
-        tooltip.textContent = noteText;
-
-        // ** THE FIX IS HERE: Updated styles for better readability **
-        tooltip.style.cssText = `
-            position: fixed; 
-            top: ${event.clientY + 15}px; 
-            left: ${event.clientX + 15}px;
-            background-color: #282c34; 
-            color: #abb2bf; 
-            padding: 10px 15px; 
-            border-radius: 8px;
-            z-index: 10000; 
-            font-size: 14px; 
-            max-width: 300px;
-            /* --- NEW STYLES --- */
-            line-height: 1.5;
-            text-align: left;
-            word-wrap: break-word;
-            white-space: pre-wrap;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        `;
+        tooltip.innerHTML = noteHtml;
+        tooltip.style.cssText = `position: fixed; top: ${event.clientY + 15}px; left: ${event.clientX + 15}px; background-color: #282c34; color: #abb2bf; padding: 10px 15px; border-radius: 8px; z-index: 10000; font-size: 14px; max-width: 300px; line-height: 1.5; text-align: left; word-wrap: break-word; box-shadow: 0 4px 12px rgba(0,0,0,0.2);`;
         document.body.appendChild(tooltip);
     });
-
     rosterTable.addEventListener('mouseout', (event) => {
-        const targetLink = event.target.closest('.roster_user_name');
-        if (!targetLink) return;
         const tooltip = document.getElementById('note-tooltip');
         if (tooltip) tooltip.remove();
     });
-
-    // --- MutationObserver for scroll (No changes here) ---
     const observer = new MutationObserver((mutationsList) => {
         let shouldReprocess = false;
         for (const mutation of mutationsList) {
@@ -295,7 +221,6 @@ function initialize() {
             setTimeout(() => { processNode(document.body); }, 100);
         }
     });
-
     const targetNode = document.getElementById('content') || document.body;
     const config = { childList: true, subtree: true };
     observer.observe(targetNode, config);
